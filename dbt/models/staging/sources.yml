@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: ecommerce
+    database: postgres
+    schema: public
+    tables:
+      - name: staging_ecommerce_orders
+
+models:
+  - name: stg_ecommerce_orders
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
