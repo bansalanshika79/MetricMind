@@ -1,0 +1,62 @@
+cubes:
+  - name: metricmind_sales
+    sql_table: public.sales_analytics
+
+    measures:
+      - name: total_revenue
+        sql: revenue
+        type: sum
+
+      - name: total_profit
+        sql: profit
+        type: sum
+
+      - name: total_orders
+        sql: order_id
+        type: count_distinct
+
+      - name: average_margin
+        sql: margin
+        type: avg
+
+      - name: total_quantity
+        sql: quantity
+        type: sum
+
+    dimensions:
+      - name: order_id
+        sql: order_id
+        type: string
+        primary_key: true
+
+      - name: order_date
+        sql: order_date
+        type: time
+
+      - name: country
+        sql: country
+        type: string
+
+      - name: city
+        sql: city
+        type: string
+
+      - name: product_category
+        sql: product_category
+        type: string
+
+      - name: product_subcategory
+        sql: product_subcategory
+        type: string
+
+      - name: brand
+        sql: brand
+        type: string
+
+      - name: customer_segment
+        sql: customer_segment
+        type: string
+
+      - name: membership_status
+        sql: membership_status
+        type: string

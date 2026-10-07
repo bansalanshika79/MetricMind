@@ -1,0 +1,14 @@
+{
+  "name": "metricmind-semantic-layer",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "cubejs-server"
+  },
+  "template": "docker",
+  "templateVersion": "1.7.50",
+  "devDependencies": {
+    "@cubejs-backend/postgres-driver": "^1.7.50",
+    "@cubejs-backend/server": "^1.7.50"
+  }
+}
