@@ -1,5 +1,6 @@
 
 import requests
+import json
 
 CUBE_URL = "http://localhost:4000/cubejs-api/v1/load"
 
@@ -10,6 +11,7 @@ MEASURES = {
     "margin": "metricmind_sales.average_margin",
     "quantity": "metricmind_sales.total_quantity",
 }
+
 
 def ask_metricmind(question):
     question = question.lower()
@@ -25,26 +27,45 @@ def ask_metricmind(question):
     elif "quantity" in question:
         measure = MEASURES["quantity"]
     else:
-        return "Try asking about revenue, profit, orders, margin, or quantity."
+        return "Ask about revenue, profit, orders, margin, or quantity."
 
-    query = {"measures": [measure]}
+    if "country" in question:
+        dimension = "metricmind_sales.country"
+    elif "category" in question:
+        dimension = "metricmind_sales.product_category"
+    else:
+        dimension = None
 
-    
+    if dimension:
+        query = {
+            "measures": [measure],
+            "dimensions": [dimension]
+        }
+    else:
+        query = {"measures": [measure]}
+
     try:
         response = requests.get(
             CUBE_URL,
-            params={"query": __import__("json").dumps(query)},
+            params={"query": json.dumps(query)},
             timeout=30
         )
         response.raise_for_status()
         data = response.json()
+
+        if dimension:
+            rows = data["data"]
+            return "\n".join(
+                f"{row[dimension]}: {row[measure]}"
+                for row in rows
+            )
+
         value = data["data"][0][measure]
-        return f"Total Revenue: {value}"
+        return f"Result: {value}"
 
-    except requests.RequestException as error:
-        return f"Could not connect to Cube: {error}"
+    except (requests.RequestException, KeyError, IndexError) as error:
+        return f"Could not retrieve results: {error}"
 
-    
 
 if __name__ == "__main__":
     print("MetricMind Business Assistant")
