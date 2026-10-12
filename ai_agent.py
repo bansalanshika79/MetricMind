@@ -3,7 +3,6 @@ import json
 import requests
 
 CUBE_URL = "http://localhost:4000/cubejs-api/v1/load"
-
 CUBE = "metricmind_sales"
 
 MEASURES = {
@@ -17,102 +16,253 @@ MEASURES = {
 DIMENSIONS = {
     "country": f"{CUBE}.country",
     "category": f"{CUBE}.product_category",
-    "date": f"{CUBE}.order_date",
+    "brand": f"{CUBE}.brand",
+    "segment": f"{CUBE}.customer_segment",
+    "membership": f"{CUBE}.membership_status",
 }
+
+DATE = f"{CUBE}.order_date"
+
+
+def run_query(measures, dimensions=None, time_dimensions=None, order=None):
+    query = {"measures": measures}
+
+    if dimensions:
+        query["dimensions"] = dimensions
+
+    if time_dimensions:
+        query["timeDimensions"] = time_dimensions
+
+    if order:
+        query["order"] = order
+
+    response = requests.get(
+        CUBE_URL,
+        params={"query": json.dumps(query)},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json().get("data", [])
+
+
+def number(value):
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def format_number(value):
+    return f"{value:,.2f}"
 
 
 def ask_metricmind(question):
-    question = question.lower().strip()
+    q = question.lower().strip()
 
-    # Identify the business metric
-    if "revenue" in question or "sales" in question:
-        measure = MEASURES["revenue"]
-        metric_name = "Revenue"
+    if not q:
+        return "Please enter a business question."
 
-    elif "profit" in question:
-        measure = MEASURES["profit"]
-        metric_name = "Profit"
-
-    elif "order" in question:
-        measure = MEASURES["orders"]
-        metric_name = "Orders"
-
-    elif "margin" in question:
-        measure = MEASURES["margin"]
-        metric_name = "Average Margin"
-
-    elif "quantity" in question:
-        measure = MEASURES["quantity"]
-        metric_name = "Quantity"
-
+    # Identify the metric
+    if any(word in q for word in ["margin", "profitability"]):
+        metric = "margin" if "margin" in q else "profit"
+    elif any(word in q for word in ["profit", "profitable"]):
+        metric = "profit"
+    elif any(word in q for word in ["order", "orders"]):
+        metric = "orders"
+    elif any(word in q for word in ["quantity", "units", "items sold"]):
+        metric = "quantity"
+    elif any(word in q for word in [
+        "revenue", "sales", "selling", "turnover"
+    ]):
+        metric = "revenue"
     else:
         return (
-            "Try asking about revenue, profit, orders, "
-            "margin, or quantity."
+            "I couldn't identify the metric. Try asking about "
+            "sales, revenue, profit, orders, margin, or quantity."
         )
 
-    # Identify the grouping dimension
-    if "country" in question:
-        dimension = DIMENSIONS["country"]
-        group_name = "Country"
+    # Identify grouping
+    dimension_name = None
 
-    elif "category" in question:
-        dimension = DIMENSIONS["category"]
-        group_name = "Product Category"
+    if any(word in q for word in ["country", "countries", "nation"]):
+        dimension_name = "country"
+    elif any(word in q for word in ["category", "categories"]):
+        dimension_name = "category"
+    elif "brand" in q:
+        dimension_name = "brand"
+    elif any(word in q for word in ["segment", "customer group"]):
+        dimension_name = "segment"
+    elif "membership" in q:
+        dimension_name = "membership"
 
-    elif any(word in question for word in ["monthly", "month", "trend"]):
-        dimension = DIMENSIONS["date"]
-        group_name = "Month"
+    # Detect average, ranking, and time trends
+    average = any(word in q.split() for word in ["average", "avg", "mean"])
+    highest = any(word in q for word in [
+        "highest", "top", "best", "maximum", "most"
+    ])
+    lowest = any(word in q for word in [
+        "lowest", "bottom", "worst", "minimum", "least"
+    ])
+    monthly = any(word in q for word in [
+        "monthly", "month", "trend", "over time"
+    ])
 
-    else:
-        dimension = None
-        group_name = None
-
-    # Build the Cube query
-    query = {"measures": [measure]}
-
-    if dimension:
-        query["dimensions"] = [dimension]
-
-    # Request results from Cube
-    try:
-        response = requests.get(
-            CUBE_URL,
-            params={"query": json.dumps(query)},
-            timeout=30
+    # Calculate average sales as revenue divided by order count.
+    # This is average revenue per order, not average line-item value.
+    if average and metric == "revenue":
+        measures = [
+            MEASURES["revenue"],
+            MEASURES["orders"],
+        ]
+        dimensions = (
+            [DIMENSIONS[dimension_name]]
+            if dimension_name else None
         )
-        response.raise_for_status()
-        data = response.json()["data"]
+
+        data = run_query(measures, dimensions)
 
         if not data:
-            return "No results found."
+            return "No data was returned."
 
-        if dimension:
-            results = []
+        results = []
 
-            for row in data:
-                label = row.get(dimension, "Unknown")
-                value = row.get(measure, "N/A")
-                results.append(f"{label}: {value}")
+        for row in data:
+            revenue = number(row.get(MEASURES["revenue"]))
+            orders = number(row.get(MEASURES["orders"]))
+            average_sales = revenue / orders if orders else 0
 
-            return f"{metric_name} by {group_name}:\n" + "\n".join(results)
+            if dimension_name:
+                label = row.get(
+                    DIMENSIONS[dimension_name], "Unknown"
+                )
+                results.append({
+                    "label": label,
+                    "value": average_sales,
+                })
+            else:
+                return (
+                    "Average sales per order: "
+                    f"{format_number(average_sales)} "
+                    f"(Revenue: {format_number(revenue)}, "
+                    f"Orders: {orders:,.0f})"
+                )
 
-        value = data[0].get(measure, "N/A")
-        return f"Total {metric_name}: {value}"
+        results.sort(key=lambda item: item["value"], reverse=True)
 
-    except (requests.RequestException, KeyError, IndexError) as error:
-        return f"Could not retrieve results: {error}"
+        if highest:
+            results = results[:1]
+        elif lowest:
+            results = results[-1:]
+
+        title = "Average Revenue per Order"
+        return title + ":\n" + "\n".join(
+            f"{item['label']}: {format_number(item['value'])}"
+            for item in results
+        )
+
+    # Prepare normal metric query
+    measure = MEASURES[metric]
+    measures = [measure]
+    dimensions = (
+        [DIMENSIONS[dimension_name]]
+        if dimension_name else None
+    )
+    time_dimensions = None
+
+    if monthly:
+        dimensions = None
+        time_dimensions = [{
+            "dimension": DATE,
+            "granularity": "month",
+        }]
+
+    order = None
+
+    if dimensions and (highest or lowest):
+        order = {
+            measure: "desc" if highest else "asc"
+        }
+
+    data = run_query(
+        measures,
+        dimensions,
+        time_dimensions,
+        order,
+    )
+
+    if not data:
+        return "No results found for this question."
+
+    metric_label = {
+        "revenue": "Revenue",
+        "profit": "Profit",
+        "orders": "Orders",
+        "margin": "Average Margin",
+        "quantity": "Quantity",
+    }[metric]
+
+    # Overall total
+    if not dimensions and not time_dimensions:
+        value = number(data[0].get(measure))
+        return f"Total {metric_label}: {format_number(value)}"
+
+    # Grouped results
+    if dimensions:
+        results = []
+
+        for row in data:
+            label = row.get(DIMENSIONS[dimension_name], "Unknown")
+            value = number(row.get(measure))
+            results.append((label, value))
+
+        results.sort(key=lambda item: item[1], reverse=True)
+
+        if highest:
+            results = results[:1]
+        elif lowest:
+            results = results[:1] if not order else results[:1]
+
+        title = f"{metric_label} by {dimension_name.title()}"
+
+        if highest:
+            title = f"Highest {metric_label}"
+        elif lowest:
+            title = f"Lowest {metric_label}"
+
+        return title + ":\n" + "\n".join(
+            f"{label}: {format_number(value)}"
+            for label, value in results
+        )
+
+    # Monthly results
+    if time_dimensions:
+        date_key = DATE + ".month"
+        results = []
+
+        for row in data:
+            label = row.get(date_key, "Unknown")
+            value = number(row.get(measure))
+            results.append((label, value))
+
+        return f"Monthly {metric_label}:\n" + "\n".join(
+            f"{label}: {format_number(value)}"
+            for label, value in results
+        )
+
+    return "I couldn't generate a result for that question."
 
 
 if __name__ == "__main__":
-    print("=== MetricMind Business Assistant ===")
+    print("MetricMind Business Assistant")
     print("Type 'exit' to quit.")
 
     while True:
         question = input("\nAsk a business question: ")
 
-        if question.lower().strip() == "exit":
-            print("Goodbye!")
+        if question.strip().lower() == "exit":
             break
 
-        print(ask_metricmind(question))
+        try:
+            print(ask_metricmind(question))
+        except requests.RequestException as error:
+            print(f"Cube connection error: {error}")
