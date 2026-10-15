@@ -1098,8 +1098,6 @@ except Exception as error:
     st.error("MetricMind encountered an error.")
     st.code(str(error))
 
-
-
 st.markdown("""
 <div class="footer">
     METRICMIND | BUSINESS INTELLIGENCE ENGINE
